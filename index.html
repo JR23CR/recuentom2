@@ -728,6 +728,7 @@
                         textoA7,
                         encontrado: false,
                         timestamp: null,
+                        estado: 'pending',
                         totalPiezas: 0
                     };
                     fardosData.push(fardoActual);
@@ -751,15 +752,21 @@
             paquetesEscaneados = [];
             document.getElementById('m2Escaneados').textContent = '0.00';
 
+            // Crear nuevos objetos para evitar referencias
             fardosData.forEach(fardo => {
-                if (!checklistData.has(fardo.id)) {
-                    checklistData.set(fardo.id, {
-                        ...fardo,
-                        encontrado: false,
-                        timestamp: null,
-                        estado: 'pending'
-                    });
-                }
+                checklistData.set(fardo.id, {
+                    id: fardo.id,
+                    numero: fardo.numero,
+                    m2: fardo.m2,
+                    piezas: [...fardo.piezas],
+                    largos: [...fardo.largos],
+                    textoC6: fardo.textoC6,
+                    textoA7: fardo.textoA7,
+                    encontrado: false,
+                    timestamp: null,
+                    estado: 'pending',
+                    totalPiezas: fardo.totalPiezas
+                });
             });
 
             actualizarEstadisticas();
@@ -770,34 +777,42 @@
         function procesarCodigoEscaneado(codigo) {
             if (!codigo) return;
 
-            if (checklistData.has(codigo)) {
-                const fardo = checklistData.get(codigo);
-
-                if (!fardo.encontrado) {
-                    fardo.encontrado = true;
-                    fardo.timestamp = new Date();
-                    fardo.estado = 'found';
-
-                    // Añadir al registro de paquetes escaneados
-                    paquetesEscaneados.push({
-                        ...fardo,
-                        timestamp: fardo.timestamp.toISOString()
-                    });
-
-                    // Sumar los m² escaneados
-                    m2EscaneadosTotal += fardo.m2;
-                    document.getElementById('m2Escaneados').textContent = m2EscaneadosTotal.toFixed(2);
-
-                    mostrarNotificacion(`✅ Fardo ${codigo} encontrado`, 'success');
-                    mostrarInfoPaquete(fardo);
-                } else {
-                    mostrarNotificacion(`ℹ️ Fardo ${codigo} ya había sido encontrado`, 'warning');
-                }
-            } else {
+            if (!checklistData.has(codigo)) {
                 mostrarNotificacion(`❌ Fardo ${codigo} no encontrado en la lista`, 'error');
                 document.getElementById('infoUltimoEscaneado').style.display = 'none';
+                return;
             }
 
+            const fardo = checklistData.get(codigo);
+
+            if (fardo.encontrado) {
+                mostrarNotificacion(`ℹ️ Fardo ${codigo} ya había sido encontrado`, 'warning');
+                mostrarInfoPaquete(fardo);
+                return;
+            }
+
+            // Marcar como encontrado
+            fardo.encontrado = true;
+            fardo.timestamp = new Date();
+            fardo.estado = 'found';
+
+            // Añadir al registro de paquetes escaneados
+            paquetesEscaneados.push({
+                id: fardo.id,
+                numero: fardo.numero,
+                m2: fardo.m2,
+                piezas: [...fardo.piezas],
+                largos: [...fardo.largos],
+                timestamp: fardo.timestamp.toISOString(),
+                totalPiezas: fardo.totalPiezas
+            });
+
+            // Sumar los m² escaneados
+            m2EscaneadosTotal += fardo.m2;
+            document.getElementById('m2Escaneados').textContent = m2EscaneadosTotal.toFixed(2);
+
+            mostrarNotificacion(`✅ Fardo ${codigo} encontrado`, 'success');
+            mostrarInfoPaquete(fardo);
             actualizarEstadisticas();
             renderizarLista();
             guardarDatos();
@@ -840,7 +855,7 @@
                 fardosFiltrados = fardosFiltrados.filter(fardo => {
                     switch (currentFilter) {
                         case 'found': return fardo.encontrado;
-                        case 'pending': return !fardo.encontrado;
+                        case 'pending': return !fardo.encontrado && fardo.estado !== 'missing';
                         case 'missing': return fardo.estado === 'missing';
                         default: return true;
                     }
@@ -873,7 +888,7 @@
                 return `
                     <div class="fardo-item" data-fardo="${fardo.id}">
                         <div class="fardo-checkbox ${fardo.encontrado ? 'checked' : ''}"
-                             onclick="toggleFardo('${fardo.id}', ${!fardo.encontrado})">
+                             onclick="toggleFardo('${fardo.id}')">
                             ${fardo.encontrado ? '✓' : ''}
                         </div>
                         <div class="fardo-info">
@@ -891,56 +906,64 @@
             container.innerHTML = html;
         }
 
-        function toggleFardo(id, checked) {
-            if (checklistData.has(id)) {
-                const fardo = checklistData.get(id);
+        function toggleFardo(id) {
+            if (!checklistData.has(id)) return;
 
-                if (checked && !fardo.encontrado) {
-                    fardo.encontrado = true;
-                    fardo.timestamp = new Date();
-                    fardo.estado = 'found';
+            const fardo = checklistData.get(id);
 
-                    // Añadir al registro de paquetes escaneados
-                    paquetesEscaneados.push({
-                        ...fardo,
-                        timestamp: fardo.timestamp.toISOString()
-                    });
+            if (fardo.encontrado) {
+                // Desmarcar fardo
+                fardo.encontrado = false;
+                fardo.timestamp = null;
+                fardo.estado = 'pending';
 
-                    // Sumar los m² escaneados
-                    m2EscaneadosTotal += fardo.m2;
-                    document.getElementById('m2Escaneados').textContent = m2EscaneadosTotal.toFixed(2);
+                // Restar los m² escaneados
+                m2EscaneadosTotal -= fardo.m2;
+                document.getElementById('m2Escaneados').textContent = m2EscaneadosTotal.toFixed(2);
 
-                    mostrarNotificacion(`✅ Fardo ${id} marcado como encontrado`, 'success');
-                } else if (!checked && fardo.encontrado) {
-                    fardo.encontrado = false;
-                    fardo.timestamp = null;
-                    fardo.estado = 'pending';
+                // Remover del registro de paquetes escaneados
+                paquetesEscaneados = paquetesEscaneados.filter(p => p.id !== id);
 
-                    // Restar los m² escaneados
-                    m2EscaneadosTotal -= fardo.m2;
-                    document.getElementById('m2Escaneados').textContent = m2EscaneadosTotal.toFixed(2);
+                mostrarNotificacion(`ℹ️ Fardo ${id} desmarcado`, 'warning');
+            } else {
+                // Marcar fardo como encontrado
+                fardo.encontrado = true;
+                fardo.timestamp = new Date();
+                fardo.estado = 'found';
 
-                    // Remover del registro de paquetes escaneados
-                    paquetesEscaneados = paquetesEscaneados.filter(p => p.id !== id);
+                // Añadir al registro de paquetes escaneados
+                paquetesEscaneados.push({
+                    id: fardo.id,
+                    numero: fardo.numero,
+                    m2: fardo.m2,
+                    piezas: [...fardo.piezas],
+                    largos: [...fardo.largos],
+                    timestamp: fardo.timestamp.toISOString(),
+                    totalPiezas: fardo.totalPiezas
+                });
 
-                    mostrarNotificacion(`ℹ️ Fardo ${id} desmarcado`, 'warning');
-                }
+                // Sumar los m² escaneados
+                m2EscaneadosTotal += fardo.m2;
+                document.getElementById('m2Escaneados').textContent = m2EscaneadosTotal.toFixed(2);
 
-                actualizarEstadisticas();
-                renderizarLista();
-                guardarDatos();
+                mostrarNotificacion(`✅ Fardo ${id} marcado como encontrado`, 'success');
             }
+
+            actualizarEstadisticas();
+            renderizarLista();
+            guardarDatos();
         }
 
         function actualizarEstadisticas() {
             const total = checklistData.size;
             const encontrados = Array.from(checklistData.values()).filter(f => f.encontrado).length;
-            const pendientes = total - encontrados;
+            const pendientes = Array.from(checklistData.values()).filter(f => !f.encontrado && f.estado !== 'missing').length;
+            const faltantes = Array.from(checklistData.values()).filter(f => f.estado === 'missing').length;
             const porcentaje = total > 0 ? Math.round((encontrados / total) * 100) : 0;
 
             document.getElementById('totalFardos').textContent = total;
             document.getElementById('fardosEncontrados').textContent = encontrados;
-            document.getElementById('fardosPendientes').textContent = pendientes;
+            document.getElementById('fardosPendientes').textContent = pendientes + faltantes;
             document.getElementById('porcentajeCompleto').textContent = `${porcentaje}%`;
 
             // Actualizar barra de progreso
@@ -970,6 +993,7 @@
                     textoA7: 'Exportación Guatemala',
                     encontrado: false,
                     timestamp: null,
+                    estado: 'pending',
                     totalPiezas: 4
                 },
                 {
@@ -982,6 +1006,7 @@
                     textoA7: 'Exportación Guatemala',
                     encontrado: false,
                     timestamp: null,
+                    estado: 'pending',
                     totalPiezas: 5
                 },
                 {
@@ -994,6 +1019,7 @@
                     textoA7: 'Exportación Guatemala',
                     encontrado: false,
                     timestamp: null,
+                    estado: 'pending',
                     totalPiezas: 3
                 }
             ];
@@ -1018,6 +1044,7 @@
 
                 document.getElementById('searchInput').value = '';
                 document.getElementById('filterStatus').value = 'all';
+                document.getElementById('infoUltimoEscaneado').style.display = 'none';
 
                 actualizarEstadisticas();
                 renderizarLista();
@@ -1077,7 +1104,6 @@
                 return;
             }
 
-            // Implementación simplificada para el ejemplo
             mostrarNotificacion('📄 Función de exportar PDF en desarrollo', 'warning');
         }
 
@@ -1126,7 +1152,7 @@
             datos.push({
                 'NÚMERO DE FARDO': 'TOTAL ESCANEADO',
                 'M²': m2EscaneadosTotal.toFixed(2),
-                'TOTAL PIEZAS': '',
+                'TOTAL PIEZAS': paquetesEscaneados.reduce((sum, fardo) => sum + fardo.totalPiezas, 0),
                 'FECHA ENCONTRADO': '',
                 'PIEZAS': '',
                 'LARGOS': ''
@@ -1142,6 +1168,9 @@
         }
 
         function mostrarNotificacion(mensaje, tipo = 'success') {
+            // Remover notificaciones anteriores
+            document.querySelectorAll('.notification').forEach(n => n.remove());
+
             const notification = document.createElement('div');
             notification.className = `notification ${tipo}`;
             notification.textContent = mensaje;
@@ -1156,7 +1185,22 @@
             try {
                 const datos = {
                     fardosData: fardosData,
-                    checklistData: Array.from(checklistData.entries()),
+                    checklistData: Array.from(checklistData.entries()).map(([id, fardo]) => [
+                        id,
+                        {
+                            id: fardo.id,
+                            numero: fardo.numero,
+                            m2: fardo.m2,
+                            piezas: fardo.piezas,
+                            largos: fardo.largos,
+                            textoC6: fardo.textoC6,
+                            textoA7: fardo.textoA7,
+                            encontrado: fardo.encontrado,
+                            timestamp: fardo.timestamp ? fardo.timestamp.toISOString() : null,
+                            estado: fardo.estado,
+                            totalPiezas: fardo.totalPiezas
+                        }
+                    ]),
                     paquetesEscaneados: paquetesEscaneados,
                     m2EscaneadosTotal: m2EscaneadosTotal,
                     timestamp: new Date().toISOString()
@@ -1175,13 +1219,13 @@
                     const parsed = JSON.parse(datos);
 
                     fardosData = parsed.fardosData || [];
-                    checklistData = new Map(parsed.checklistData || []);
+                    checklistData = new Map();
 
-                    // Reconstruir objetos Date
-                    checklistData.forEach(fardo => {
-                        if (fardo.timestamp && typeof fardo.timestamp === 'string') {
-                            fardo.timestamp = new Date(fardo.timestamp);
-                        }
+                    parsed.checklistData.forEach(([id, fardo]) => {
+                        checklistData.set(id, {
+                            ...fardo,
+                            timestamp: fardo.timestamp ? new Date(fardo.timestamp) : null
+                        });
                     });
 
                     paquetesEscaneados = parsed.paquetesEscaneados || [];
@@ -1193,6 +1237,7 @@
                 }
             } catch (error) {
                 console.error('Error al cargar datos:', error);
+                mostrarNotificacion('Error al cargar datos guardados', 'error');
             }
         }
 
