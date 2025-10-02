@@ -747,12 +747,13 @@
         }
 
         function inicializarChecklist() {
+            // Limpiar datos existentes
             checklistData.clear();
             m2EscaneadosTotal = 0;
             paquetesEscaneados = [];
             document.getElementById('m2Escaneados').textContent = '0.00';
 
-            // Crear nuevos objetos para evitar referencias
+            // Crear nuevos objetos para cada fardo con estado inicial "no encontrado"
             fardosData.forEach(fardo => {
                 checklistData.set(fardo.id, {
                     id: fardo.id,
@@ -762,9 +763,9 @@
                     largos: [...fardo.largos],
                     textoC6: fardo.textoC6,
                     textoA7: fardo.textoA7,
-                    encontrado: false,
+                    encontrado: false,  // Estado inicial: NO encontrado
                     timestamp: null,
-                    estado: 'pending',
+                    estado: 'pending',  // Estado inicial: pendiente
                     totalPiezas: fardo.totalPiezas
                 });
             });
@@ -777,6 +778,7 @@
         function procesarCodigoEscaneado(codigo) {
             if (!codigo) return;
 
+            // Verificar si el código existe en la lista
             if (!checklistData.has(codigo)) {
                 mostrarNotificacion(`❌ Fardo ${codigo} no encontrado en la lista`, 'error');
                 document.getElementById('infoUltimoEscaneado').style.display = 'none';
@@ -785,18 +787,19 @@
 
             const fardo = checklistData.get(codigo);
 
+            // Verificar si el fardo YA está marcado como encontrado
             if (fardo.encontrado) {
                 mostrarNotificacion(`ℹ️ Fardo ${codigo} ya había sido encontrado`, 'warning');
                 mostrarInfoPaquete(fardo);
-                return;
+                return;  // Salir de la función si ya está encontrado
             }
 
-            // Marcar como encontrado
+            // Si NO está encontrado, marcarlo como encontrado
             fardo.encontrado = true;
             fardo.timestamp = new Date();
             fardo.estado = 'found';
 
-            // Añadir al registro de paquetes escaneados
+            // Añadir al registro de paquetes escaneados (copia del objeto)
             paquetesEscaneados.push({
                 id: fardo.id,
                 numero: fardo.numero,
@@ -1218,22 +1221,25 @@
                 if (datos) {
                     const parsed = JSON.parse(datos);
 
-                    fardosData = parsed.fardosData || [];
-                    checklistData = new Map();
+                    // Solo cargar datos si hay fardosData (evitar cargar datos basura)
+                    if (parsed.fardosData && parsed.fardosData.length > 0) {
+                        fardosData = parsed.fardosData;
+                        checklistData = new Map();
 
-                    parsed.checklistData.forEach(([id, fardo]) => {
-                        checklistData.set(id, {
-                            ...fardo,
-                            timestamp: fardo.timestamp ? new Date(fardo.timestamp) : null
+                        parsed.checklistData.forEach(([id, fardo]) => {
+                            checklistData.set(id, {
+                                ...fardo,
+                                timestamp: fardo.timestamp ? new Date(fardo.timestamp) : null
+                            });
                         });
-                    });
 
-                    paquetesEscaneados = parsed.paquetesEscaneados || [];
-                    m2EscaneadosTotal = parsed.m2EscaneadosTotal || 0;
-                    document.getElementById('m2Escaneados').textContent = m2EscaneadosTotal.toFixed(2);
+                        paquetesEscaneados = parsed.paquetesEscaneados || [];
+                        m2EscaneadosTotal = parsed.m2EscaneadosTotal || 0;
+                        document.getElementById('m2Escaneados').textContent = m2EscaneadosTotal.toFixed(2);
 
-                    actualizarEstadisticas();
-                    renderizarLista();
+                        actualizarEstadisticas();
+                        renderizarLista();
+                    }
                 }
             } catch (error) {
                 console.error('Error al cargar datos:', error);
